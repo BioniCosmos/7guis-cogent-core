@@ -9,9 +9,24 @@ import (
 )
 
 func main() {
-	b := core.NewBody()
-	// counter(b)
-	temperatureConverter(b)
+	b := core.NewBody("7GUIs")
+
+	tasks := []struct {
+		name   string
+		runner func(*core.Body)
+	}{
+		{name: "Counter", runner: counter},
+		{name: "Temperature Converter", runner: temperatureConverter},
+	}
+
+	for _, task := range tasks {
+		core.NewButton(b).SetText(task.name).OnClick(func(e events.Event) {
+			taskBody := core.NewBody(task.name)
+			task.runner(taskBody)
+			taskBody.RunWindow()
+		})
+	}
+
 	b.RunMainWindow()
 }
 
