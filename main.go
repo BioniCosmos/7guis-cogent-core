@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
+	"time"
 
+	"cogentcore.org/core/colors"
 	"cogentcore.org/core/core"
 	"cogentcore.org/core/events"
 	"cogentcore.org/core/styles"
@@ -17,6 +20,7 @@ func main() {
 	}{
 		{name: "Counter", runner: counter},
 		{name: "Temperature Converter", runner: temperatureConverter},
+		{name: "Flight Booker", runner: flightBooker},
 	}
 
 	for _, task := range tasks {
@@ -87,5 +91,66 @@ func temperatureConverter(body *core.Body) {
 			return
 		}
 		celsiusInput.SetText(strconv.FormatFloat((parsed-32)*5/9, 'f', -1, 64)).Update()
+	})
+}
+
+func flightBooker(body *core.Body) {
+	const (
+		oneWayFlight = "one-way flight"
+		returnFlight = "return flight"
+	)
+
+	option := oneWayFlight
+	startRaw := time.Now().Format(time.DateOnly)
+	returnRaw := startRaw
+
+	optionChooser := core.Bind(&option, core.NewChooser(body).SetStrings(oneWayFlight, returnFlight))
+	startInput := core.Bind(&startRaw, core.NewTextField(body))
+	returnInput := core.Bind(&returnRaw, core.NewTextField(body))
+	bookButton := core.NewButton(body).SetText("Book")
+
+	returnInput.SetEnabled(false)
+
+	setInputStyle := func(input *core.TextField, valid bool) {
+		input.Styler(func(s *styles.Style) {
+			if valid {
+				s.Background = colors.Scheme.SurfaceContainer
+			} else {
+				s.Background = colors.Scheme.Error.Container
+			}
+		})
+	}
+
+	validate := func() {
+		startDate, err := time.Parse(time.DateOnly, startRaw)
+		setInputStyle(startInput, err == nil)
+
+		ok := err == nil
+		if option == returnFlight {
+			returnDate, err := time.Parse(time.DateOnly, returnRaw)
+			setInputStyle(returnInput, err == nil)
+			ok = ok && err == nil && !startDate.After(returnDate)
+		}
+
+		bookButton.SetEnabled(ok)
+		bookButton.Update()
+	}
+
+	optionChooser.OnChange(func(e events.Event) {
+		returnInput.SetEnabled(option == returnFlight)
+		returnInput.Update()
+		validate()
+	})
+
+	startInput.OnChange(func(e events.Event) { validate() })
+	returnInput.OnChange(func(e events.Event) { validate() })
+
+	bookButton.OnClick(func(e events.Event) {
+		switch option {
+		case oneWayFlight:
+			core.MessageSnackbar(body, fmt.Sprintf("You have booked a one-way flight on %s.", startRaw))
+		case returnFlight:
+			core.MessageSnackbar(body, fmt.Sprintf("You have booked a return flight on %s and %s.", startRaw, returnRaw))
+		}
 	})
 }
