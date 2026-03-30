@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -21,6 +22,7 @@ func main() {
 		{name: "Counter", runner: counter},
 		{name: "Temperature Converter", runner: temperatureConverter},
 		{name: "Flight Booker", runner: flightBooker},
+		{name: "Timer", runner: timer},
 	}
 
 	for _, task := range tasks {
@@ -153,4 +155,50 @@ func flightBooker(body *core.Body) {
 			core.MessageSnackbar(body, fmt.Sprintf("You have booked a return flight on %s and %s.", startRaw, returnRaw))
 		}
 	})
+}
+
+func timer(body *core.Body) {
+	ticks := 0
+	target := 0.0
+	elapsed := 0.0
+
+	progressFrame := core.NewFrame(body)
+	progressFrame.Styler(func(s *styles.Style) {
+		s.Direction = styles.Row
+		s.Align.Items = styles.Center
+		s.Grow.X = 1
+	})
+	core.NewText(progressFrame).SetText("Elapsed Time:")
+	progressBar := core.Bind(&elapsed, core.NewMeter(progressFrame).SetMax(60))
+
+	elapsedDisplay := core.NewText(body).SetText("0.0 s")
+
+	controlFrame := core.NewFrame(body)
+	controlFrame.Styler(func(s *styles.Style) {
+		s.Direction = styles.Row
+		s.Align.Items = styles.Center
+		s.Grow.X = 1
+	})
+	core.NewText(controlFrame).SetText("Duration:")
+	core.Bind(&target, core.NewSlider(controlFrame).SetMax(60).SetEnforceStep(true))
+
+	core.NewButton(body).SetText("Reset").AsButton().OnClick(func(e events.Event) {
+		ticks = 0
+		elapsed = 0
+		progressBar.Update()
+		elapsedDisplay.SetText("0.0 s").Update()
+	})
+
+	go func() {
+		for range time.Tick(100 * time.Millisecond) {
+			body.AsyncLock()
+			if ticks < int(math.Round(target*10)) {
+				ticks++
+				elapsed = float64(ticks) / 10
+				progressBar.Update()
+				elapsedDisplay.SetText(fmt.Sprintf("%.1f s", elapsed)).Update()
+			}
+			body.AsyncUnlock()
+		}
+	}()
 }
