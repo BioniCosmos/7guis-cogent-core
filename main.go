@@ -3,13 +3,16 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"cogentcore.org/core/colors"
 	"cogentcore.org/core/core"
 	"cogentcore.org/core/events"
 	"cogentcore.org/core/styles"
+	"cogentcore.org/core/styles/units"
 )
 
 func main() {
@@ -23,6 +26,7 @@ func main() {
 		{name: "Temperature Converter", runner: temperatureConverter},
 		{name: "Flight Booker", runner: flightBooker},
 		{name: "Timer", runner: timer},
+		{name: "CRUD", runner: crud},
 	}
 
 	for _, task := range tasks {
@@ -201,4 +205,99 @@ func timer(body *core.Body) {
 			body.AsyncUnlock()
 		}
 	}()
+}
+
+func crud(body *core.Body) {
+	type Person struct {
+		Name    string
+		Surname string
+	}
+
+	people := []Person{}
+
+	body.Styler(func(s *styles.Style) { s.Gap.Y.Dp(16) })
+
+	type Search struct {
+		FilterPrefix string
+	}
+
+	search := &Search{}
+	filter := func() []Person {
+		if search.FilterPrefix == "" {
+			return people
+		}
+		filtered := []Person{}
+		for _, person := range people {
+			if strings.HasPrefix(person.Surname, search.FilterPrefix) {
+				filtered = append(filtered, person)
+			}
+		}
+		return filtered
+	}
+	searchForm := core.NewForm(body).SetStruct(search)
+
+	formFrame := core.NewFrame(body)
+	formFrame.Styler(func(s *styles.Style) {
+		s.Grow.SetScalar(1)
+		s.Gap.X.Dp(16)
+	})
+
+	items := &[]string{}
+	selected := -1
+	personList := core.NewList(formFrame).SetSlice(items).BindSelect(&selected)
+	personList.Styler(func(s *styles.Style) {
+		s.Max.X.Pw(16.67)
+		s.Border.Width.Set(units.Dp(1))
+	})
+	personList.Updater(func() {
+		filtered := filter()
+		*items = make([]string, 0, len(filtered))
+		for _, person := range filtered {
+			*items = append(*items, fmt.Sprintf("%v, %v", person.Name, person.Surname))
+		}
+	})
+
+	person := &Person{}
+	personForm := core.NewForm(formFrame).SetStruct(person)
+	personForm.Styler(func(s *styles.Style) { s.Grow.X = 1 })
+
+	opFrame := core.NewFrame(body)
+	core.NewButton(opFrame).SetText("Create").OnClick(func(e events.Event) {
+		if person.Name != "" && person.Surname != "" {
+			people = append(people, *person)
+			personList.Update()
+
+			*person = Person{}
+			personForm.Update()
+		}
+	})
+
+	updateButton := core.NewButton(opFrame).SetText("Update").SetEnabled(false)
+	updateButton.OnClick(func(e events.Event) {
+		if person.Name != "" && person.Surname != "" {
+			people[selected] = *person
+			personList.SetSelectedIndex(-1)
+			personList.Send(events.Select)
+			personList.Update()
+
+			*person = Person{}
+			personForm.Update()
+		}
+	})
+
+	deleteButton := core.NewButton(opFrame).SetText("Delete").SetEnabled(false)
+	deleteButton.OnClick(func(e events.Event) {
+		people = slices.Delete(people, selected, selected+1)
+		personList.SetSelectedIndex(-1)
+		personList.Send(events.Select)
+		personList.Update()
+	})
+
+	personList.OnChange(func(e events.Event) {
+		enabled := selected != -1
+		updateButton.SetEnabled(enabled).Update()
+		deleteButton.SetEnabled(enabled).Update()
+	})
+
+	searchForm.OnChange(func(e events.Event) { personList.Update() })
 }
