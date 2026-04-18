@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"slices"
 	"strconv"
@@ -11,7 +12,10 @@ import (
 	"cogentcore.org/core/colors"
 	"cogentcore.org/core/core"
 	"cogentcore.org/core/events"
+	"cogentcore.org/core/math32"
+	"cogentcore.org/core/paint"
 	"cogentcore.org/core/styles"
+	"cogentcore.org/core/styles/abilities"
 	"cogentcore.org/core/styles/units"
 )
 
@@ -27,6 +31,7 @@ func main() {
 		{name: "Flight Booker", runner: flightBooker},
 		{name: "Timer", runner: timer},
 		{name: "CRUD", runner: crud},
+		{name: "Circle Drawer", runner: circleDrawer},
 	}
 
 	for _, task := range tasks {
@@ -300,4 +305,152 @@ func crud(body *core.Body) {
 	})
 
 	searchForm.OnChange(func(e events.Event) { personList.Update() })
+}
+
+func circleDrawer(body *core.Body) {
+	type Circle struct {
+		Pos    image.Point
+		Radius float32
+	}
+
+	type Draw struct {
+		Ptr   *Circle
+		Index int
+	}
+
+	type Adjust struct {
+		Index int
+		From  float32
+		To    float32
+	}
+
+	circles := []*Circle{}
+	selected := -1
+	operations := []any{}
+	opIndex := -1
+	adjusting := false
+
+	opFrame := core.NewFrame(body)
+
+	undoButton := core.NewButton(opFrame).SetText("Undo")
+	undoButton.Updater(func() { undoButton.SetEnabled(opIndex >= 0) })
+
+	redoButton := core.NewButton(opFrame).SetText("Redo")
+	redoButton.Updater(func() { redoButton.SetEnabled(opIndex < len(operations)-1) })
+
+	addOp := func(op any) {
+		if opIndex != len(operations)-1 {
+			operations = operations[:opIndex+1]
+		}
+		operations = append(operations, op)
+		opIndex++
+		opFrame.Update()
+	}
+
+	canvas := core.NewCanvas(body)
+
+	canvas.SetDraw(func(pc *paint.Painter) {
+		size := canvas.Geom.Size.Actual.Content
+		base := min(size.X, size.Y)
+		for i, circle := range circles {
+			norm := math32.FromPoint(canvas.PointToRelPos(circle.Pos)).Div(size)
+			pc.Ellipse(norm.X, norm.Y, circle.Radius*base/size.X, circle.Radius*base/size.Y)
+			pc.Stroke.Color = colors.Scheme.Outline
+			if i == selected {
+				pc.Fill.Color = colors.Scheme.Secondary.Base
+			} else {
+				pc.Fill.Color = nil
+			}
+			pc.Draw()
+		}
+	})
+
+	canvas.Styler(func(s *styles.Style) {
+		s.Grow.SetScalar(1)
+		s.Border.Width.Set(units.Dp(1))
+		s.SetAbilities(true, abilities.Clickable)
+	})
+
+	canvas.OnClick(func(e events.Event) {
+		circle := &Circle{Pos: e.Pos(), Radius: 0.1}
+		circles = append(circles, circle)
+		addOp(Draw{Ptr: circle, Index: len(circles) - 1})
+		canvas.Update()
+	})
+
+	canvas.On(events.MouseMove, func(e events.Event) {
+		if adjusting {
+			return
+		}
+
+		size := canvas.Geom.Size.Actual.Content
+		base := min(size.X, size.Y)
+
+		selected = -1
+		canvas.ContextMenus = nil
+
+		for i, circle := range circles {
+			if math32.FromPoint(e.Pos()).DistanceTo(math32.FromPoint(circle.Pos)) < circle.Radius*base {
+				selected = i
+				canvas.AddContextMenu(func(m *core.Scene) {
+					adjustButton := core.NewButton(m).SetText("Adjust diameter")
+					adjustButton.OnClick(func(e events.Event) {
+						adjusting = true
+						circle := circles[selected]
+						from := circle.Radius
+
+						adjustBody := core.NewBody("Adjust diameter")
+
+						core.NewText(adjustBody).SetText(fmt.Sprintf(
+							"Adjust diameter of circle at (%v, %v)",
+							circle.Pos.X,
+							circle.Pos.Y,
+						))
+
+						adjustSlider := core.NewSlider(adjustBody).SetStep(0.01).SetValue(from)
+						adjustSlider.OnInput(func(e events.Event) {
+							circle.Radius = adjustSlider.Value
+							canvas.Update()
+						})
+						adjustBody.OnClose(func(e events.Event) {
+							if to := circle.Radius; from != to {
+								addOp(Adjust{Index: selected, From: from, To: to})
+							}
+							adjusting = false
+						})
+
+						adjustBody.AddBottomBar(func(bar *core.Frame) { adjustBody.AddCancel(bar) })
+						adjustBody.RunDialog(adjustButton)
+					})
+				})
+				break
+			}
+		}
+
+		canvas.Update()
+	})
+
+	undoButton.OnClick(func(e events.Event) {
+		switch op := operations[opIndex].(type) {
+		case Draw:
+			circles = slices.Delete(circles, op.Index, op.Index+1)
+		case Adjust:
+			circles[op.Index].Radius = op.From
+		}
+		opIndex--
+		opFrame.Update()
+		canvas.Update()
+	})
+
+	redoButton.OnClick(func(e events.Event) {
+		opIndex++
+		switch op := operations[opIndex].(type) {
+		case Draw:
+			circles = slices.Insert(circles, op.Index, op.Ptr)
+		case Adjust:
+			circles[op.Index].Radius = op.To
+		}
+		opFrame.Update()
+		canvas.Update()
+	})
 }
