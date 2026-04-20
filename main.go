@@ -333,9 +333,11 @@ func circleDrawer(body *core.Body) {
 	opFrame := core.NewFrame(body)
 
 	undoButton := core.NewButton(opFrame).SetText("Undo")
+	undoButton.Styler(func(s *styles.Style) { s.MaxBoxShadow = styles.BoxShadow1() })
 	undoButton.Updater(func() { undoButton.SetEnabled(opIndex >= 0) })
 
 	redoButton := core.NewButton(opFrame).SetText("Redo")
+	redoButton.Styler(func(s *styles.Style) { s.MaxBoxShadow = styles.BoxShadow1() })
 	redoButton.Updater(func() { redoButton.SetEnabled(opIndex < len(operations)-1) })
 
 	addOp := func(op any) {
