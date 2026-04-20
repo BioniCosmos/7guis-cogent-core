@@ -331,6 +331,10 @@ func circleDrawer(body *core.Body) {
 	adjusting := false
 
 	opFrame := core.NewFrame(body)
+	opFrame.Styler(func(s *styles.Style) {
+		s.Grow.X = 1
+		s.Justify.Content = styles.Center
+	})
 
 	undoButton := core.NewButton(opFrame).SetText("Undo")
 	undoButton.Styler(func(s *styles.Style) { s.MaxBoxShadow = styles.BoxShadow1() })
