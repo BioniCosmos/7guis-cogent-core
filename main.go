@@ -460,3 +460,36 @@ func circleDrawer(body *core.Body) {
 		canvas.Update()
 	})
 }
+
+func cells(body *core.Body) {
+	const rows = 100
+	const cols = 26
+
+	body.Styler(func(s *styles.Style) {
+		s.Display = styles.Grid
+		s.Columns = cols + 1
+		s.Justify.Items = styles.Center
+		s.Align.Items = styles.Center
+		s.Gap.Zero()
+	})
+
+	core.NewFrame(body)
+	for c := range cols {
+		core.NewText(body).SetText(string(byte('A' + c)))
+	}
+
+	for r := range rows {
+		core.NewText(body).SetText(strconv.Itoa(r)).Styler(func(s *styles.Style) {
+			s.SetTextWrap(false)
+			s.Margin.Right.Dp(8)
+		})
+		for range cols {
+			core.NewTextField(body).SetType(core.TextFieldOutlined).Styler(func(s *styles.Style) {
+				s.Border.Radius.Zero()
+				s.MaxBorder = s.Border
+				s.SetTextWrap(false)
+				s.Min.X.Ch(13)
+			})
+		}
+	}
+}
