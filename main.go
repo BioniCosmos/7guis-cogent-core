@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -462,8 +463,58 @@ func circleDrawer(body *core.Body) {
 }
 
 func cells(body *core.Body) {
+	type CellSource int8
+
+	const (
+		Primitive CellSource = iota
+		Computed
+	)
+
+	type Cell struct {
+		Value       int
+		Source      CellSource
+		Node        *core.TextField
+		Subscribers []*Cell
+	}
+
+	parseFormula := func(input string) (string, []string, bool) {
+		regex := regexp.MustCompile(`^=([a-z]+)\(([A-Z]\d+(?:\s*,\s*[A-Z]\d+)*)\)$`)
+
+		matches := regex.FindStringSubmatch(input)
+		if len(matches) == 0 {
+			return "", nil, false
+		}
+
+		funcName := matches[1]
+		rawParams := matches[2]
+
+		rawList := strings.Split(rawParams, ",")
+		params := make([]string, len(rawList))
+		for i, p := range rawList {
+			params[i] = strings.TrimSpace(p)
+		}
+
+		return funcName, params, true
+	}
+
 	const rows = 100
 	const cols = 26
+
+	cells := [rows][cols]*Cell{}
+
+	getCell := func(cellId string) *Cell {
+		col := cellId[0] - 'A'
+
+		row, err := strconv.Atoi(cellId[1:])
+		if err != nil {
+			return nil
+		}
+		if row < 0 || row > 99 {
+			return nil
+		}
+
+		return cells[row][col]
+	}
 
 	body.Styler(func(s *styles.Style) {
 		s.Display = styles.Grid
@@ -483,12 +534,56 @@ func cells(body *core.Body) {
 			s.SetTextWrap(false)
 			s.Margin.Right.Dp(8)
 		})
-		for range cols {
-			core.NewTextField(body).SetType(core.TextFieldOutlined).Styler(func(s *styles.Style) {
+		for c := range cols {
+			cellNode := core.NewTextField(body).SetType(core.TextFieldOutlined)
+			cellNode.Styler(func(s *styles.Style) {
 				s.Border.Radius.Zero()
 				s.MaxBorder = s.Border
 				s.SetTextWrap(false)
 				s.Min.X.Ch(13)
+			})
+
+			cell := Cell{
+				Source: Primitive,
+				Node:   cellNode,
+			}
+			cells[r][c] = &cell
+
+			cellNode.OnChange(func(e events.Event) {
+				funcName, params, isFormula := parseFormula(cellNode.Text())
+				if !isFormula {
+					value, err := strconv.Atoi(cellNode.Text())
+					if err != nil {
+						cellNode.SetText(err.Error())
+						cellNode.Update()
+						return
+					}
+
+					cell.Value = value
+					return
+				}
+
+				switch funcName {
+				case "add":
+					a := getCell(params[0])
+					if a == nil {
+						cellNode.SetText(fmt.Sprint("unknown cell: ", params[0]))
+						break
+					}
+
+					b := getCell(params[1])
+					if b == nil {
+						cellNode.SetText(fmt.Sprint("unknown cell: ", params[1]))
+						break
+					}
+
+					cell.Source = Computed
+					cell.Value = a.Value + b.Value
+					cellNode.SetText(strconv.Itoa(cell.Value))
+				default:
+					cellNode.SetText(fmt.Sprint("unknown function: ", funcName))
+				}
+				cellNode.Update()
 			})
 		}
 	}
