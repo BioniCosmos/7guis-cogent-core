@@ -463,17 +463,19 @@ func circleDrawer(body *core.Body) {
 }
 
 func cells(body *core.Body) {
-	type CellSource int8
+	type CellType int8
 
 	const (
-		Primitive CellSource = iota
+		Plain CellType = iota
+		Value
 		Computed
 	)
 
 	type Cell struct {
 		Value       int
-		Source      CellSource
+		Type        CellType
 		Node        *core.TextField
+		Formula     string
 		Subscribers []*Cell
 	}
 
@@ -544,21 +546,20 @@ func cells(body *core.Body) {
 			})
 
 			cell := Cell{
-				Source: Primitive,
-				Node:   cellNode,
+				Type: Plain,
+				Node: cellNode,
 			}
 			cells[r][c] = &cell
 
-			cellNode.OnChange(func(e events.Event) {
+			cellNode.OnFocusLost(func(e events.Event) {
 				funcName, params, isFormula := parseFormula(cellNode.Text())
 				if !isFormula {
 					value, err := strconv.Atoi(cellNode.Text())
 					if err != nil {
-						cellNode.SetText(err.Error())
-						cellNode.Update()
 						return
 					}
 
+					cell.Type = Value
 					cell.Value = value
 					return
 				}
@@ -570,20 +571,35 @@ func cells(body *core.Body) {
 						cellNode.SetText(fmt.Sprint("unknown cell: ", params[0]))
 						break
 					}
+					if a.Type == Plain {
+						cellNode.SetText(fmt.Sprint("invalid cell: ", params[0]))
+						break
+					}
 
 					b := getCell(params[1])
 					if b == nil {
 						cellNode.SetText(fmt.Sprint("unknown cell: ", params[1]))
 						break
 					}
+					if b.Type == Plain {
+						cellNode.SetText(fmt.Sprint("invalid cell: ", params[1]))
+						break
+					}
 
-					cell.Source = Computed
+					cell.Type = Computed
 					cell.Value = a.Value + b.Value
+					cell.Formula = cellNode.Text()
 					cellNode.SetText(strconv.Itoa(cell.Value))
 				default:
 					cellNode.SetText(fmt.Sprint("unknown function: ", funcName))
 				}
 				cellNode.Update()
+			})
+
+			cellNode.OnFocus(func(e events.Event) {
+				if cell.Type == Computed {
+					cellNode.SetText(cell.Formula).Update()
+				}
 			})
 		}
 	}
