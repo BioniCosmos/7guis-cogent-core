@@ -472,11 +472,42 @@ func cells(body *core.Body) {
 	)
 
 	type Cell struct {
-		Value       int
-		Type        CellType
-		Node        *core.TextField
-		Formula     string
-		Subscribers []*Cell
+		Type         CellType
+		Node         *core.TextField
+		Value        int
+		Formula      string
+		Subscribers  map[*Cell]struct{}
+		Dependencies map[*Cell]struct{}
+	}
+
+	// dep already is/is not cell’s sub directly or indirectly.
+	isSubscriber := (func(cell *Cell, dep *Cell) bool)(nil)
+	isSubscriber = func(cell *Cell, dep *Cell) bool {
+		for sub := range cell.Subscribers {
+			if dep == sub || isSubscriber(sub, dep) {
+				return true
+			}
+		}
+		return false
+	}
+
+	addDependency := func(cell *Cell, dep *Cell) {
+		if dep.Subscribers == nil {
+			dep.Subscribers = map[*Cell]struct{}{}
+		}
+		dep.Subscribers[cell] = struct{}{}
+
+		if cell.Dependencies == nil {
+			cell.Dependencies = map[*Cell]struct{}{}
+		}
+		cell.Dependencies[dep] = struct{}{}
+	}
+
+	clearDependencies := func(cell *Cell) {
+		for dep := range cell.Dependencies {
+			delete(dep.Subscribers, cell)
+		}
+		clear(cell.Dependencies)
 	}
 
 	parseFormula := func(input string) (string, []string, bool) {
@@ -518,6 +549,82 @@ func cells(body *core.Body) {
 		return cells[row][col]
 	}
 
+	render := (func(cell *Cell))(nil)
+	render = func(cell *Cell) {
+		defer func() {
+			for sub := range cell.Subscribers {
+				render(sub)
+			}
+		}()
+
+		clearDependencies(cell)
+
+		source := ""
+		if cell.Formula != "" {
+			source = cell.Formula
+		} else {
+			source = cell.Node.Text()
+		}
+
+		funcName, params, isFormula := parseFormula(source)
+		if !isFormula {
+			value, err := strconv.Atoi(source)
+			if err != nil {
+				cell.Type = Plain
+				cell.Value = 0
+				cell.Formula = ""
+				return
+			}
+
+			cell.Type = Value
+			cell.Value = value
+			cell.Formula = ""
+			return
+		}
+
+		switch funcName {
+		case "add":
+			a := getCell(params[0])
+			if a == nil {
+				cell.Node.SetText(fmt.Sprint("unknown cell: ", params[0]))
+				break
+			}
+			if a.Type == Plain {
+				cell.Node.SetText(fmt.Sprint("invalid cell: ", params[0]))
+				break
+			}
+			if isSubscriber(cell, a) {
+				cell.Node.SetText(fmt.Sprint("circular dependency: ", params[0]))
+				break
+			}
+
+			b := getCell(params[1])
+			if b == nil {
+				cell.Node.SetText(fmt.Sprint("unknown cell: ", params[1]))
+				break
+			}
+			if b.Type == Plain {
+				cell.Node.SetText(fmt.Sprint("invalid cell: ", params[1]))
+				break
+			}
+			if isSubscriber(cell, b) {
+				cell.Node.SetText(fmt.Sprint("circular dependency: ", params[1]))
+				break
+			}
+
+			addDependency(cell, a)
+			addDependency(cell, b)
+
+			cell.Type = Computed
+			cell.Value = a.Value + b.Value
+			cell.Formula = source
+			cell.Node.SetText(strconv.Itoa(cell.Value))
+		default:
+			cell.Node.SetText(fmt.Sprint("unknown function: ", funcName))
+		}
+		cell.Node.Update()
+	}
+
 	body.Styler(func(s *styles.Style) {
 		s.Display = styles.Grid
 		s.Columns = cols + 1
@@ -545,56 +652,10 @@ func cells(body *core.Body) {
 				s.Min.X.Ch(13)
 			})
 
-			cell := Cell{
-				Type: Plain,
-				Node: cellNode,
-			}
+			cell := Cell{Node: cellNode}
 			cells[r][c] = &cell
 
-			cellNode.OnFocusLost(func(e events.Event) {
-				funcName, params, isFormula := parseFormula(cellNode.Text())
-				if !isFormula {
-					value, err := strconv.Atoi(cellNode.Text())
-					if err != nil {
-						return
-					}
-
-					cell.Type = Value
-					cell.Value = value
-					return
-				}
-
-				switch funcName {
-				case "add":
-					a := getCell(params[0])
-					if a == nil {
-						cellNode.SetText(fmt.Sprint("unknown cell: ", params[0]))
-						break
-					}
-					if a.Type == Plain {
-						cellNode.SetText(fmt.Sprint("invalid cell: ", params[0]))
-						break
-					}
-
-					b := getCell(params[1])
-					if b == nil {
-						cellNode.SetText(fmt.Sprint("unknown cell: ", params[1]))
-						break
-					}
-					if b.Type == Plain {
-						cellNode.SetText(fmt.Sprint("invalid cell: ", params[1]))
-						break
-					}
-
-					cell.Type = Computed
-					cell.Value = a.Value + b.Value
-					cell.Formula = cellNode.Text()
-					cellNode.SetText(strconv.Itoa(cell.Value))
-				default:
-					cellNode.SetText(fmt.Sprint("unknown function: ", funcName))
-				}
-				cellNode.Update()
-			})
+			cellNode.OnFocusLost(func(e events.Event) { render(&cell) })
 
 			cellNode.OnFocus(func(e events.Event) {
 				if cell.Type == Computed {
