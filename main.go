@@ -33,6 +33,7 @@ func main() {
 		{name: "Timer", runner: timer},
 		{name: "CRUD", runner: crud},
 		{name: "Circle Drawer", runner: circleDrawer},
+		{name: "Cells", runner: cells},
 	}
 
 	for _, task := range tasks {
@@ -549,22 +550,61 @@ func cells(body *core.Body) {
 		return cells[row][col]
 	}
 
+	recalc := (func(cell *Cell))(nil)
+	recalc = func(cell *Cell) {
+		funcName, params, _ := parseFormula(cell.Formula)
+
+		switch funcName {
+		case "add":
+			a := getCell(params[0])
+			if a == nil {
+				cell.Node.SetText(fmt.Sprint("unknown cell: ", params[0]))
+				break
+			}
+			if a.Type == Plain {
+				cell.Node.SetText(fmt.Sprint("invalid cell: ", params[0]))
+				break
+			}
+			if isSubscriber(cell, a) {
+				cell.Node.SetText(fmt.Sprint("circular dependency: ", params[0]))
+				break
+			}
+
+			b := getCell(params[1])
+			if b == nil {
+				cell.Node.SetText(fmt.Sprint("unknown cell: ", params[1]))
+				break
+			}
+			if b.Type == Plain {
+				cell.Node.SetText(fmt.Sprint("invalid cell: ", params[1]))
+				break
+			}
+			if isSubscriber(cell, b) {
+				cell.Node.SetText(fmt.Sprint("circular dependency: ", params[1]))
+				break
+			}
+
+			cell.Value = a.Value + b.Value
+			cell.Node.SetText(strconv.Itoa(cell.Value))
+		}
+		cell.Node.Update()
+
+		for sub := range cell.Subscribers {
+			recalc(sub)
+		}
+	}
+
 	render := (func(cell *Cell))(nil)
 	render = func(cell *Cell) {
 		defer func() {
 			for sub := range cell.Subscribers {
-				render(sub)
+				recalc(sub)
 			}
 		}()
 
 		clearDependencies(cell)
 
-		source := ""
-		if cell.Formula != "" {
-			source = cell.Formula
-		} else {
-			source = cell.Node.Text()
-		}
+		source := cell.Node.Text()
 
 		funcName, params, isFormula := parseFormula(source)
 		if !isFormula {
