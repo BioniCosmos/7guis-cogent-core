@@ -49,11 +49,16 @@ func main() {
 
 func counter(body *core.Body) {
 	i := 0
-	textField := core.NewTextField(body).SetText(strconv.Itoa(i))
-	textField.SetReadOnly(true)
-	core.NewButton(body).SetText("Count").OnClick(func(e events.Event) {
+
+	frame := core.NewFrame(body)
+	frame.Styler(func(s *styles.Style) { s.Align.Items = styles.Center })
+
+	counter := core.Bind(&i, core.NewText(frame))
+	counter.Styler(func(s *styles.Style) { s.SetTextWrap(false) })
+
+	core.NewButton(frame).SetText("Count").OnClick(func(e events.Event) {
 		i++
-		textField.SetText(strconv.Itoa(i)).Update()
+		counter.Update()
 	})
 }
 
